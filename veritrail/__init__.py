@@ -57,7 +57,7 @@ from .principals import Principal, PrincipalKind, PrincipalRegistry
 from .revocation import Revocation, RevocationRegistry
 from .scope import Scope
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 __all__ = [
     "crypto",

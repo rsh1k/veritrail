@@ -101,6 +101,9 @@ def build_report(engine: Engine, verdict: VerdictResult) -> str:
 
     generated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
     stats = engine.stats()
+    # Precompute values that contain backslash escapes; embedding a backslash
+    # inside an f-string replacement field is a SyntaxError before Python 3.12.
+    human_root_display = chain.human_root_name or "\u2014 none \u2014"
 
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -197,7 +200,7 @@ def build_report(engine: Engine, verdict: VerdictResult) -> str:
 
   <div class="meta">
     <div><span class="k">Action ID</span><span class="val">{_esc(action.id)}</span></div>
-    <div><span class="k">Human root</span><span class="val">{_esc(chain.human_root_name or '\u2014 none \u2014')}</span></div>
+    <div><span class="k">Human root</span><span class="val">{_esc(human_root_display)}</span></div>
     <div><span class="k">Hops to human</span><span class="val">{_esc(chain.hops)}</span></div>
     <div><span class="k">Max severity</span><span class="val">{_esc(verdict.max_severity)}</span></div>
     <div><span class="k">Ledger head</span><span class="val">{_esc(_short(stats['ledger_head'], 20))}</span></div>

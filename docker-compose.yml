@@ -1,7 +1,7 @@
 services:
   veritrail:
     build: .
-    image: veritrail:0.2.2
+    image: veritrail:0.2.3
     container_name: veritrail
     ports:
       - "8080:8080"
