@@ -1,0 +1,30 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local data / generated output
+*.db
+*.sqlite
+*.sqlite3
+veritrail_report_*.html
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
