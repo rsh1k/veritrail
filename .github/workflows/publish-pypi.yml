@@ -1,4 +1,4 @@
-kname: Publish to PyPI
+name: Publish to PyPI
 
 # Builds and publishes the package to PyPI when you publish a GitHub Release.
 # Uses PyPI Trusted Publishing (OIDC) — no API tokens or secrets to manage.
