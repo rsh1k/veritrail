@@ -98,3 +98,13 @@ def test_invalid_principal_kind_rejected(client):
     r = client.post("/v1/principals", json={
         "kind": "robot", "name": "x", "public_key_b64": "abc"})
     assert r.status_code == 422
+
+
+def test_malformed_inputs_return_422_not_500(client):
+    # A bogus public key must not leak a 500.
+    r = client.post("/v1/principals", json={
+        "kind": "human", "name": "Alice", "public_key_b64": "not-a-real-key"})
+    assert r.status_code == 422
+    # Malformed delegation / action payloads are clean 422s too.
+    assert client.post("/v1/delegations", json={"delegation": {"bogus": 1}}).status_code == 422
+    assert client.post("/v1/actions", json={"action": {"nope": True}}).status_code == 422

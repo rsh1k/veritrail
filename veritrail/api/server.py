@@ -7,12 +7,15 @@ Security posture:
 * Clients sign delegations/actions locally with the SDK; this service only ever
   receives public keys and signatures. No private key material is accepted,
   stored, or logged (OWASP A02 Cryptographic Failures, A09 Logging).
-* All inputs are validated by Pydantic models with strict bounds.
-* Security headers are applied to every response.
-* Errors return typed, non-leaky messages (OWASP A04 Insecure Design).
+* All inputs are validated by Pydantic models with strict bounds, and every
+  write endpoint converts unexpected construction/parsing errors (e.g. a
+  malformed public key) into a clean 422 rather than leaking a 500.
+* Security headers are applied to every response; writes can require a bearer
+  token; requests are rate limited per client IP.
 
 Run:  uvicorn veritrail.api.server:app --host 0.0.0.0 --port 8080
-Docs: http://localhost:8080/docs
+Docs: http://localhost:8080/docs  (Swagger UI assets are blocked by the strict
+      CSP; use http://localhost:8080/openapi.json or curl for the raw API)
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ from veritrail.principals import Principal, PrincipalKind, new_id
 
 app = FastAPI(
     title="Veritrail",
-    version="0.2.0",
+    version="0.2.1",
     description="Verifiable provenance and forensics for autonomous AI agents.",
 )
 
@@ -53,7 +56,7 @@ _db_path = os.environ.get("VERITRAIL_DB")
 _store = SqliteStore(_db_path) if _db_path else None
 engine = Engine(store=_store)
 
-# Optional API-key auth: set VERITRAIL_API_KEY to require a bearer token.
+# Optional API-key auth: set VERITRAIL_API_KEY to require a bearer token on writes.
 _API_KEY = os.environ.get("VERITRAIL_API_KEY")
 
 # Simple in-process rate limiter (requests per IP per window). For multi-node,
@@ -96,13 +99,15 @@ async def security_headers(request: Request, call_next):
 
 
 def _handle(exc: Exception) -> HTTPException:
+    """Map a Veritrail error to an HTTP status. Non-Veritrail errors are mapped
+    by the calling endpoint to a 422 so malformed input never leaks a 500."""
     if isinstance(exc, (ScopeViolation, ExpiredGrant, SignatureError, ChainBroken, ValidationError)):
         return HTTPException(status_code=422, detail=f"{type(exc).__name__}: {exc}")
     if isinstance(exc, UnknownPrincipal):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, VeritrailError):
         return HTTPException(status_code=400, detail=str(exc))
-    raise exc
+    return HTTPException(status_code=422, detail="invalid request")
 
 
 # ---- models ---------------------------------------------------------------
@@ -153,8 +158,11 @@ def register_principal(body: RegisterPrincipal, authorization: str | None = Head
         if engine.store is not None:
             engine.store.save_principal(p)
         return p.to_dict()
-    except Exception as exc:
+    except VeritrailError as exc:
         raise _handle(exc)
+    except Exception:
+        # Malformed public key or other construction failure.
+        raise HTTPException(status_code=422, detail="invalid principal: malformed public key or fields")
 
 
 @app.get("/v1/principals")
@@ -167,10 +175,15 @@ def ingest_delegation(body: DelegationIn, authorization: str | None = Header(def
     _check_auth(authorization)
     try:
         d = Delegation.from_dict(body.delegation)
+    except Exception:
+        raise HTTPException(status_code=422, detail="malformed delegation payload")
+    try:
         engine.ingest_delegation(d)
         return {"id": d.id, "status": "accepted"}
-    except Exception as exc:
+    except VeritrailError as exc:
         raise _handle(exc)
+    except Exception:
+        raise HTTPException(status_code=422, detail="delegation could not be processed")
 
 
 @app.post("/v1/actions", status_code=201)
@@ -178,10 +191,15 @@ def ingest_action(body: ActionIn, authorization: str | None = Header(default=Non
     _check_auth(authorization)
     try:
         a = ActionRecord.from_dict(body.action)
+    except Exception:
+        raise HTTPException(status_code=422, detail="malformed action payload")
+    try:
         _, verdict = engine.ingest_action(a)
         return verdict.to_dict()
-    except Exception as exc:
+    except VeritrailError as exc:
         raise _handle(exc)
+    except Exception:
+        raise HTTPException(status_code=422, detail="action could not be processed")
 
 
 @app.post("/v1/revocations", status_code=201)
@@ -193,8 +211,10 @@ def revoke(body: RevokeIn, authorization: str | None = Header(default=None)) -> 
         else:
             r = engine.revoke_principal(body.target_id, body.reason, revoked_by=body.revoked_by)
         return r.to_dict()
-    except Exception as exc:
+    except VeritrailError as exc:
         raise _handle(exc)
+    except Exception:
+        raise HTTPException(status_code=422, detail="revocation could not be processed")
 
 
 @app.get("/v1/revocations")
