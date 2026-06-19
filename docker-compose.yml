@@ -1,0 +1,18 @@
+services:
+  veritrail:
+    build: .
+    image: veritrail:0.2.0
+    container_name: veritrail
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    read_only: true            # immutable container filesystem
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
