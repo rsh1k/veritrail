@@ -11,10 +11,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the package and metadata, then install it.
+# Copy the package and metadata, then install it (with the Postgres backend so
+# the published image supports both SQLite and Postgres deployments).
 COPY pyproject.toml README.md ./
 COPY veritrail ./veritrail
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[postgres]"
 
 # Run as an unprivileged user (no shell, no home writes needed at runtime).
 RUN useradd --system --no-create-home --uid 10001 veritrail

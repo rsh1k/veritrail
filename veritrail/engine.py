@@ -110,9 +110,10 @@ class Engine:
         self.cascade_fanout_threshold = cascade_fanout_threshold
         self.rogue_strike_threshold = rogue_strike_threshold
 
-        # Wire the ledger to write through to the store on every append.
-        on_append = self.store.save_ledger_entry if self.store is not None else None
-        self.ledger = ledger or Ledger(on_append=on_append)
+        # The ledger holds the in-memory view. When a store is present, durable
+        # appends are coordinated by the store (see _append_ledger) and mirrored
+        # here; the store stays the source of truth for verification.
+        self.ledger = ledger or Ledger()
 
         if self.store is not None:
             self._rehydrate()
@@ -167,15 +168,53 @@ class Engine:
         self._emit("revoke", **{"veritrail.target": principal_id, "veritrail.target_kind": "principal"})
         return r
 
-    # ---- read helpers (used by the API; avoid poking private dicts) -------
+    # ---- read helpers (read-through to the store so one replica sees the
+    #      records another replica wrote) -----------------------------------
     def has_action(self, action_id: str) -> bool:
-        return action_id in self._actions
+        return self._get_action(action_id) is not None
 
     def get_action(self, action_id: str) -> ActionRecord | None:
-        return self._actions.get(action_id)
+        return self._get_action(action_id)
 
     def get_delegation(self, delegation_id: str) -> Delegation | None:
-        return self._delegations.get(delegation_id)
+        return self._get_delegation(delegation_id)
+
+    def _get_action(self, action_id: str) -> ActionRecord | None:
+        a = self._actions.get(action_id)
+        if a is None and self.store is not None:
+            a = self.store.get_action(action_id)
+            if a is not None:
+                self._actions[a.id] = a
+        return a
+
+    def _get_delegation(self, delegation_id: str) -> Delegation | None:
+        d = self._delegations.get(delegation_id)
+        if d is None and self.store is not None:
+            d = self.store.get_delegation(delegation_id)
+            if d is not None:
+                self._delegations[d.id] = d
+        return d
+
+    def _get_principal(self, principal_id: str) -> Principal:
+        if principal_id in self.registry:
+            return self.registry.get(principal_id)
+        if self.store is not None:
+            p = self.store.get_principal(principal_id)
+            if p is not None:
+                if p.id not in self.registry:
+                    self.registry.register(p)
+                return p
+        raise UnknownPrincipal(f"unknown principal: {principal_id}")
+
+    def _append_ledger(self, kind: str, payload: dict[str, Any]) -> None:
+        """Append to the tamper-evident ledger. With a store, the append is
+        coordinated and persisted by the store (correct across replicas) and
+        mirrored into the in-memory view; without one, it is purely in-memory."""
+        if self.store is not None:
+            entry = self.store.append_ledger(kind, payload)
+            self.ledger.append_prebuilt(entry)
+        else:
+            self.ledger.append(kind, payload)
 
 
     # ---- delegation -------------------------------------------------------
@@ -191,10 +230,10 @@ class Engine:
         now: float | None = None,
     ) -> Delegation:
         """A human grants authority to an agent. The only valid chain root."""
-        human = self.registry.get(human_id)
+        human = self._get_principal(human_id)
         if human.kind != PrincipalKind.HUMAN:
             raise ValidationError("root delegations must be issued by a HUMAN principal")
-        self.registry.get(agent_id)  # ensure subject exists
+        self._get_principal(agent_id)  # ensure subject exists
         delegation = build_signed_delegation(
             issuer_private_key=human_private_key,
             issuer_id=human_id,
@@ -227,7 +266,7 @@ class Engine:
         Attenuation and expiry are enforced here so an invalid sub-delegation
         is rejected before it can ever enter the ledger.
         """
-        parent = self._delegations.get(parent_delegation_id)
+        parent = self._get_delegation(parent_delegation_id)
         if parent is None:
             raise ChainBroken(f"unknown parent delegation: {parent_delegation_id}")
         if parent.subject_id != issuer_id:
@@ -243,8 +282,8 @@ class Engine:
         effective_ttl = min(ttl_seconds, max(0.0, parent.expires_at - when))
         if effective_ttl <= 0:
             raise ExpiredGrant("no remaining lifetime on parent to delegate")
-        issuer = self.registry.get(issuer_id)
-        self.registry.get(subject_id)
+        issuer = self._get_principal(issuer_id)
+        self._get_principal(subject_id)
         delegation = build_signed_delegation(
             issuer_private_key=issuer_private_key,
             issuer_id=issuer_id,
@@ -264,7 +303,7 @@ class Engine:
         self._delegations[delegation.id] = delegation
         if self.store is not None:
             self.store.save_delegation(delegation)
-        self.ledger.append("delegation", delegation.to_dict())
+        self._append_ledger("delegation", delegation.to_dict())
         self._emit("issue_delegation", **{
             "veritrail.delegation.id": delegation.id,
             "gen_ai.agent.id": delegation.subject_id,
@@ -279,8 +318,8 @@ class Engine:
         as if the service had issued it — the server trusts nothing it cannot
         re-check. Private keys never reach the server.
         """
-        issuer = self.registry.get(delegation.issuer_id)
-        self.registry.get(delegation.subject_id)
+        issuer = self._get_principal(delegation.issuer_id)
+        self._get_principal(delegation.subject_id)
         if not delegation.verify_signature(issuer.public_key):
             raise SignatureError("delegation signature failed to verify")
         when = now if now is not None else time.time()
@@ -288,7 +327,7 @@ class Engine:
             if issuer.kind != PrincipalKind.HUMAN:
                 raise ValidationError("root delegation must be issued by a human")
         else:
-            parent = self._delegations.get(delegation.parent_id)
+            parent = self._get_delegation(delegation.parent_id)
             if parent is None:
                 raise ChainBroken(f"unknown parent delegation: {delegation.parent_id}")
             if parent.subject_id != delegation.issuer_id:
@@ -299,21 +338,21 @@ class Engine:
                 raise ScopeViolation("sub-delegation scope exceeds parent (privilege escalation)")
             if delegation.expires_at > parent.expires_at:
                 raise ScopeViolation("sub-delegation outlives its parent")
-        if delegation.id in self._delegations:
+        if self._get_delegation(delegation.id) is not None:
             raise ValidationError("delegation id already exists")
         self._store_delegation(delegation)
         return delegation
 
     def ingest_action(self, action: ActionRecord) -> tuple[ActionRecord, VerdictResult]:
         """Accept a client-signed action, record it, and return the verdict."""
-        if action.delegation_id not in self._delegations:
+        if self._get_delegation(action.delegation_id) is None:
             raise ChainBroken(f"unknown delegation: {action.delegation_id}")
-        if action.id in self._actions:
+        if self._get_action(action.id) is not None:
             raise ValidationError("action id already exists")
         self._actions[action.id] = action
         if self.store is not None:
             self.store.save_action(action)
-        self.ledger.append("action", action.to_dict())
+        self._append_ledger("action", action.to_dict())
         return action, self.verify_action(action.id)
 
     # ---- actions ----------------------------------------------------------
@@ -338,7 +377,7 @@ class Engine:
         verdict's ``authorized`` flag is False, which a calling guard uses to
         block the side effect.
         """
-        delegation = self._delegations.get(delegation_id)
+        delegation = self._get_delegation(delegation_id)
         if delegation is None:
             raise ChainBroken(f"unknown delegation: {delegation_id}")
         rec = build_signed_action(
@@ -355,14 +394,14 @@ class Engine:
         self._actions[rec.id] = rec
         if self.store is not None:
             self.store.save_action(rec)
-        self.ledger.append("action", rec.to_dict())
+        self._append_ledger("action", rec.to_dict())
         verdict = self.verify_action(rec.id)
         return rec, verdict
 
     # ---- verification -----------------------------------------------------
     def reconstruct_chain(self, action_id: str) -> ChainResult:
         """Walk an action back to a human root, verifying every hop."""
-        action = self._actions.get(action_id)
+        action = self._get_action(action_id)
         if action is None:
             return ChainResult(ok=False, action_id=action_id, human_root_id=None,
                                human_root_name=None, errors=["unknown action"])
@@ -370,7 +409,7 @@ class Engine:
 
         # 1. Verify the action's own signature.
         try:
-            actor = self.registry.get(action.actor_id)
+            actor = self._get_principal(action.actor_id)
             if not action.verify_signature(actor.public_key):
                 result.ok = False
                 result.errors.append("action signature invalid")
@@ -382,7 +421,7 @@ class Engine:
             result.errors.append(f"actor {action.actor_id} has been revoked")
 
         # 2. Walk the delegation chain leaf -> root.
-        current = self._delegations.get(action.delegation_id)
+        current = self._get_delegation(action.delegation_id)
         if current is None:
             result.ok = False
             result.errors.append("authorizing delegation not found")
@@ -413,7 +452,7 @@ class Engine:
 
             # Verify issuer signature on this delegation.
             try:
-                issuer = self.registry.get(current.issuer_id)
+                issuer = self._get_principal(current.issuer_id)
             except UnknownPrincipal:
                 result.ok = False
                 result.errors.append(f"issuer {current.issuer_id} not registered")
@@ -434,7 +473,7 @@ class Engine:
                     result.human_root_name = issuer.name
                 break
 
-            parent = self._delegations.get(current.parent_id)
+            parent = self._get_delegation(current.parent_id)
             if parent is None:
                 result.ok = False
                 result.errors.append(f"parent delegation {current.parent_id} missing")
@@ -460,13 +499,13 @@ class Engine:
 
     def verify_action(self, action_id: str) -> VerdictResult:
         """Full verdict: chain reconstruction + behavioral detection."""
-        action = self._actions[action_id]
+        action = self._get_action(action_id)
         chain = self.reconstruct_chain(action_id)
-        authorizing = self._delegations.get(action.delegation_id)
+        authorizing = self._get_delegation(action.delegation_id)
 
         actor_sig_valid = False
         try:
-            actor = self.registry.get(action.actor_id)
+            actor = self._get_principal(action.actor_id)
             actor_sig_valid = action.verify_signature(actor.public_key)
         except UnknownPrincipal:
             actor_sig_valid = False
@@ -582,10 +621,28 @@ class Engine:
         return out
 
     # ---- integrity --------------------------------------------------------
+    def _authoritative_ledger(self) -> Ledger:
+        """The ledger to verify against. With a store, rebuild from durable
+        storage so the check covers what every replica wrote (and catches
+        storage-level tampering); otherwise use the in-memory ledger."""
+        if self.store is not None:
+            led = Ledger()
+            led.load_entries(self.store.load_ledger())
+            return led
+        return self.ledger
+
     def verify_ledger(self) -> bool:
-        return self.ledger.verify_integrity()
+        return self._authoritative_ledger().verify_integrity()
 
     def stats(self) -> dict[str, Any]:
+        if self.store is not None:
+            led = self._authoritative_ledger()
+            counts = self.store.counts()
+            return {
+                **counts,
+                "ledger_head": led.head_hash,
+                "merkle_root": led.merkle_root(),
+            }
         return {
             "principals": len(self.registry.all()),
             "delegations": len(self._delegations),

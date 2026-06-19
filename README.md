@@ -1,5 +1,9 @@
 # Veritrail — Provenance and Forensics for AI Agents
 
+[![CI](https://github.com/rsh1k/veritrail/actions/workflows/ci.yml/badge.svg)](https://github.com/rsh1k/veritrail/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 **A tamper-evident flight recorder and cryptographic chain-of-custody for autonomous AI agents.** Veritrail proves which human authorized which agent to take which action — even five delegations deep — detects when an agent's authority has been hijacked, and keeps an audit trail you can still trust months later.
 
 > Built around the OWASP Top 10 for Agentic Applications (2026) and NIST cryptographic standards. Ships as a Python SDK, a REST service, and a one-command Docker deployment.
@@ -128,8 +132,10 @@ uvicorn veritrail.api.server:app --host 0.0.0.0 --port 8080
 Turn on durable storage and an API key with two environment variables:
 
 ```bash
-export VERITRAIL_DB=/data/veritrail.db      # enables SQLite persistence
-export VERITRAIL_API_KEY=your-secret-key    # requires Bearer auth on writes
+export VERITRAIL_DB=/data/veritrail.db                 # SQLite (single node)
+# or, for multi-replica deployments:
+# export VERITRAIL_DB=postgresql://user:pass@host:5432/veritrail
+export VERITRAIL_API_KEY=your-secret-key               # requires Bearer auth on writes
 uvicorn veritrail.api.server:app --host 0.0.0.0 --port 8080
 ```
 
@@ -145,7 +151,7 @@ The image runs as a non-root user with a read-only root filesystem, every Linux 
 
 ## Built for the enterprise
 
-- **Durable by default when you want it.** A write-through SQLite store keeps a fast in-memory working set and mirrors every change to disk, so nothing is lost on restart and the ledger validates after reload. The storage interface is deliberately small — porting it to Postgres or append-only object storage is mechanical.
+- **Durable, and ready to scale.** Point `VERITRAIL_DB` at a path for the zero-ops **SQLite** backend, or at a `postgresql://` URL for the **PostgreSQL** backend built for multi-replica deployments. Both use a write-through model (fast in-memory working set, durable storage of record). The ledger append is coordinated — across every replica, via a Postgres advisory lock — so the tamper-evident hash chain stays linear and verifiable no matter how many writers there are, and one replica can resolve records another replica wrote.
 - **Revocation that actually revokes.** A signature proves a grant was authentic when issued; it says nothing about whether that authority is still valid. Revoke a leaked agent key or an offboarded employee and every action whose chain runs through them stops verifying immediately.
 - **Observability that drops into your stack.** Veritrail emits structured audit events using OpenTelemetry GenAI semantic-convention field names (`gen_ai.agent.id`, `gen_ai.operation.name`, `gen_ai.tool.name`), so they flow into an OTel collector, Datadog, Splunk, or Elastic without remapping.
 - **Hardened API surface.** Strict input validation, security headers on every response, optional bearer-token auth with constant-time comparison, and per-client rate limiting.
@@ -215,7 +221,7 @@ That third invariant is there because the fuzzer found it: a self-contained hash
 
 Veritrail is a production-grade reference implementation of the core engine. It is not a turnkey, independently-audited SaaS, and it would be dishonest to pretend otherwise. Before you bet a regulated workload on it:
 
-- **Persistence and scale.** Use the SQLite backend for a single node or a shared volume; move to Postgres or append-only object storage for multi-node, high-write deployments. Run several stateless API replicas over shared storage and let the storage layer serialize ledger appends.
+- **Persistence and scale.** Use the SQLite backend (`VERITRAIL_DB=/data/veritrail.db`) for a single node or a shared volume; use the PostgreSQL backend (`VERITRAIL_DB=postgresql://...`, install with `pip install 'veritrail[postgres]'`) for multi-node, high-write deployments. Run several stateless API replicas over the shared database — ledger appends are serialized across replicas by a Postgres advisory lock, so the chain stays correct. Note: the deterministic authorization checks (signature, chain, scope, expiry, revocation, ledger integrity) are globally correct across replicas; the behavioral heuristics (consent fatigue, action fan-out) use a per-replica recent view and are best-effort across replicas.
 - **External witness.** Publish the ledger head or Merkle root to an independent timestamping authority or transparency log on a schedule, so you can prove the log was not rewritten even by an insider with database access.
 - **Key management.** Keep agent keys in an HSM or KMS, or a per-agent enclave; rotate and revoke them.
 - **AuthN/Z and network.** Put the service behind mTLS or an API gateway; the built-in API key and rate limiter are backstops, not your whole access-control story.

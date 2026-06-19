@@ -53,7 +53,7 @@ from veritrail.errors import (
     VeritrailError,
 )
 from veritrail.forensics import build_report
-from veritrail.persistence import SqliteStore
+from veritrail.persistence import open_store
 from veritrail.principals import Principal, PrincipalKind, new_id
 
 logger = logging.getLogger("veritrail")
@@ -71,7 +71,7 @@ app = FastAPI(
 
 # Optional durable persistence.
 _db_path = os.environ.get("VERITRAIL_DB")
-_store = SqliteStore(_db_path) if _db_path else None
+_store = open_store(_db_path) if _db_path else None
 engine = Engine(store=_store)
 
 # Optional API-key auth for write endpoints.

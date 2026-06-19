@@ -86,6 +86,13 @@ class Ledger:
         with self._lock:
             self._entries = sorted(entries, key=lambda e: e.seq)
 
+    def append_prebuilt(self, entry: LedgerEntry) -> None:
+        """Append an entry whose seq/prev_hash/hash were assigned elsewhere
+        (e.g. by a coordinated store). Used to mirror durable appends into the
+        in-memory view; the store remains the source of truth for verification."""
+        with self._lock:
+            self._entries.append(entry)
+
     @property
     def head_hash(self) -> str:
         return self._entries[-1].entry_hash if self._entries else GENESIS_PREV_HASH

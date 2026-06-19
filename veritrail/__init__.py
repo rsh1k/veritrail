@@ -52,12 +52,12 @@ from .errors import (
     VeritrailError,
 )
 from .ledger import Ledger, LedgerEntry
-from .persistence import SqliteStore
+from .persistence import PostgresStore, SqliteStore, open_store
 from .principals import Principal, PrincipalKind, PrincipalRegistry
 from .revocation import Revocation, RevocationRegistry
 from .scope import Scope
 
-__version__ = "0.2.3"
+__version__ = "0.3.0"
 
 __all__ = [
     "crypto",
@@ -80,6 +80,8 @@ __all__ = [
     "Revocation",
     "RevocationRegistry",
     "SqliteStore",
+    "PostgresStore",
+    "open_store",
     "AuditSink",
     "JsonlSink",
     "NullSink",

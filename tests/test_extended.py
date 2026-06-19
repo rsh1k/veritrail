@@ -89,13 +89,15 @@ def test_persisted_ledger_detects_tamper(tmp_path):
         actor_private_key=a_priv, actor_id=agent.id, delegation_id=root.id,
         tool="db.read", action="read", risk=5, description="read the database rows",
     )
-    # Reload, then mutate an in-memory entry to simulate a rewritten record.
+    eng.store.close()
+    # Tamper with the durable store directly (the real threat model), then
+    # verify a fresh engine detects it on reload.
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE ledger SET payload=? WHERE seq=0", ('{"forged": true}',))
+    conn.commit()
+    conn.close()
     eng2 = Engine(store=SqliteStore(db))
-    from veritrail.ledger import LedgerEntry
-    bad = eng2.ledger._entries[0]
-    eng2.ledger._entries[0] = LedgerEntry(
-        seq=bad.seq, kind=bad.kind, payload={"forged": True},
-        recorded_at=bad.recorded_at, prev_hash=bad.prev_hash, entry_hash=bad.entry_hash)
     try:
         eng2.verify_ledger()
         assert False, "expected tamper detection"
