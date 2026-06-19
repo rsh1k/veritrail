@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritrail"
-version = "0.2.0"
+version = "0.2.2"
 description = "Verifiable provenance and forensics for autonomous AI agents — a tamper-evident flight recorder and cryptographic chain-of-custody for agentic actions."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -70,18 +70,23 @@ class ActionRecord:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "ActionRecord":
-        return cls(
-            id=d["id"],
-            actor_id=d["actor_id"],
-            delegation_id=d["delegation_id"],
-            tool=d["tool"],
-            action=d["action"],
-            risk=int(d["risk"]),
-            description=d["description"],
-            params_digest=d["params_digest"],
-            occurred_at=float(d["occurred_at"]),
-            signature=d.get("signature", ""),
-        )
+        if not isinstance(d, dict):
+            raise ValidationError("action payload must be an object")
+        try:
+            return cls(
+                id=d["id"],
+                actor_id=d["actor_id"],
+                delegation_id=d["delegation_id"],
+                tool=d["tool"],
+                action=d["action"],
+                risk=int(d["risk"]),
+                description=d["description"],
+                params_digest=d["params_digest"],
+                occurred_at=float(d["occurred_at"]),
+                signature=d.get("signature", ""),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError(f"malformed action payload: {exc}") from None
 
 
 def build_signed_action(

@@ -81,17 +81,22 @@ class Delegation:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Delegation":
-        return cls(
-            id=d["id"],
-            issuer_id=d["issuer_id"],
-            subject_id=d["subject_id"],
-            scope=Scope.from_dict(d["scope"]),
-            purpose=d["purpose"],
-            parent_id=d.get("parent_id"),
-            issued_at=float(d["issued_at"]),
-            expires_at=float(d["expires_at"]),
-            signature=d.get("signature", ""),
-        )
+        if not isinstance(d, dict):
+            raise ValidationError("delegation payload must be an object")
+        try:
+            return cls(
+                id=d["id"],
+                issuer_id=d["issuer_id"],
+                subject_id=d["subject_id"],
+                scope=Scope.from_dict(d["scope"]),
+                purpose=d["purpose"],
+                parent_id=d.get("parent_id"),
+                issued_at=float(d["issued_at"]),
+                expires_at=float(d["expires_at"]),
+                signature=d.get("signature", ""),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValidationError(f"malformed delegation payload: {exc}") from None
 
 
 def build_signed_delegation(

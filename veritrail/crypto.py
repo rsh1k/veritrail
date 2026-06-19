@@ -29,6 +29,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from .errors import ValidationError
+
 __all__ = [
     "canonical_bytes",
     "sha256_hex",
@@ -101,10 +103,13 @@ def public_key_to_b64(public_key: Ed25519PublicKey) -> str:
 
 
 def public_key_from_b64(b64: str) -> Ed25519PublicKey:
-    """Deserialize a public key from base64."""
-    padded = b64 + "=" * (-len(b64) % 4)
-    raw = base64.urlsafe_b64decode(padded.encode("ascii"))
-    return Ed25519PublicKey.from_public_bytes(raw)
+    """Deserialize a public key from base64. Raises ValidationError if malformed."""
+    try:
+        padded = b64 + "=" * (-len(b64) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        return Ed25519PublicKey.from_public_bytes(raw)
+    except (ValueError, TypeError, base64.binascii.Error) as exc:
+        raise ValidationError(f"invalid Ed25519 public key: {exc}") from None
 
 
 def private_key_to_b64(private_key: Ed25519PrivateKey) -> str:
@@ -118,7 +123,10 @@ def private_key_to_b64(private_key: Ed25519PrivateKey) -> str:
 
 
 def private_key_from_b64(b64: str) -> Ed25519PrivateKey:
-    """Deserialize a private key from base64."""
-    padded = b64 + "=" * (-len(b64) % 4)
-    raw = base64.urlsafe_b64decode(padded.encode("ascii"))
-    return Ed25519PrivateKey.from_private_bytes(raw)
+    """Deserialize a private key from base64. Raises ValidationError if malformed."""
+    try:
+        padded = b64 + "=" * (-len(b64) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+        return Ed25519PrivateKey.from_private_bytes(raw)
+    except (ValueError, TypeError, base64.binascii.Error) as exc:
+        raise ValidationError(f"invalid Ed25519 private key: {exc}") from None

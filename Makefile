@@ -13,7 +13,7 @@ serve:
 	uvicorn veritrail.api.server:app --host 0.0.0.0 --port 8080 --reload
 
 docker-build:
-	docker build -t veritrail:0.2.0 .
+	docker build -t veritrail:0.2.2 .
 
 docker-up:
 	docker compose up --build

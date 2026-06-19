@@ -1,6 +1,5 @@
 """Tests for cryptographic primitives — the trust foundation."""
 
-import pytest
 
 from veritrail import crypto
 

@@ -1,6 +1,5 @@
 """HTTP-level tests for the Veritrail service."""
 
-import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -108,3 +107,37 @@ def test_malformed_inputs_return_422_not_500(client):
     # Malformed delegation / action payloads are clean 422s too.
     assert client.post("/v1/delegations", json={"delegation": {"bogus": 1}}).status_code == 422
     assert client.post("/v1/actions", json={"action": {"nope": True}}).status_code == 422
+
+
+def test_unhandled_error_is_sanitized_500(monkeypatch):
+    # Force an unexpected (non-Veritrail) error inside an endpoint and confirm
+    # the global handler returns a clean 500 with no stack trace in the body.
+    from fastapi.testclient import TestClient
+    from veritrail.api import server
+    from veritrail.engine import Engine
+    server.engine = Engine()
+
+    def boom():
+        raise RuntimeError("internal detail that must not leak")
+
+    monkeypatch.setattr(server.engine, "stats", boom)
+    # raise_server_exceptions=False mirrors how a real HTTP client sees the
+    # response (the default test client re-raises instead of returning it).
+    client = TestClient(server.app, raise_server_exceptions=False)
+    r = client.get("/v1/stats")
+    assert r.status_code == 500
+    assert r.json() == {"detail": "internal server error"}
+    assert "must not leak" not in r.text
+    assert "Traceback" not in r.text
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_docs_route_has_relaxed_csp(client):
+    r = client.get("/openapi.json")
+    assert r.status_code == 200
+    assert "cdn.jsdelivr.net" in r.headers["Content-Security-Policy"]
+
+
+def test_api_route_has_strict_csp(client):
+    r = client.get("/healthz")
+    assert r.headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'"

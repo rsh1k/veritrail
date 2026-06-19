@@ -66,7 +66,7 @@ def main() -> None:
         tool="invoices.read", action="read", risk=10,
         description="read approved invoice batch for monthly reconciliation",
     )
-    print(f"\nWorker performed: invoices.read / read")
+    print("\nWorker performed: invoices.read / read")
     print(f"  authorized        : {verdict.authorized}")
     print(f"  attributed to     : {verdict.chain.human_root_name}")
     print(f"  hops to human     : {verdict.chain.hops}")

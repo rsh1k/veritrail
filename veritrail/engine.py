@@ -23,7 +23,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from . import crypto
 from .action import ActionRecord, build_signed_action
 from .delegation import Delegation, build_signed_delegation
 from .detection import DetectionEngine, Finding, Severity, max_severity

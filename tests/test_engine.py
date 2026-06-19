@@ -5,7 +5,7 @@ import time
 import pytest
 
 from veritrail import Engine, Scope, crypto
-from veritrail.errors import ExpiredGrant, ScopeViolation
+from veritrail.errors import ScopeViolation
 
 
 def make_actor(eng, kind, name):
