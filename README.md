@@ -7,7 +7,6 @@
 *A tamper-evident flight recorder and cryptographic chain-of-custody for autonomous AI agents. Built around the OWASP Top 10 for Agentic Applications (ASI 2026) and NIST cryptographic standards.*
 
 [![PyPI version](https://img.shields.io/pypi/v/veritrail.svg)](https://pypi.org/project/veritrail/)
-[![Downloads](https://static.pepy.tech/badge/veritrail)](https://pepy.tech/project/veritrail)
 [![CI](https://github.com/rsh1k/veritrail/actions/workflows/ci.yml/badge.svg)](https://github.com/rsh1k/veritrail/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
